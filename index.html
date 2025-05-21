@@ -217,27 +217,72 @@
             const formattedServiceList = JSON.stringify(serviceTypes, null, 2);
 
             const prompt = `
-    You are an intelligent assistant that helps classify service requests.
+You are an intelligent multilingual AI assistant that classifies user service requests.
 
-    Given the following user query: "${query}"
+You will receive a user query written in natural language, possibly in any language (e.g., English, Hindi, Marathi, etc.).
 
-    Extract the following information and return ONLY a valid JSON object with **no explanation or text**.
+Your task is to deeply understand the user’s intent, context, and any symptoms or needs described in the query, and generate a **structured JSON object** that includes the most relevant service types, urgency, and location.
 
-    Use the following rules:
+---
 
-    - "service_type": Choose the most relevant one from this list (match as closely as possible):
-    ${formattedServiceList}
+Follow these strict rules:
 
-    - "location_mentioned": Extract the name of any location mentioned (e.g. "Mumbai", "Main Street", etc.), or use null if not mentioned.
+1. **"query"**: "${query}".
 
-    - "urgency": Choose one of "High", "Medium", or "Low" based on the tone and urgency implied in the request.
+2. **"service_type"**: Select the most appropriate services that match the user’s request. Use the following list as your only valid options:
+   ${formattedServiceList}
 
-    Return ONLY valid JSON, like:
-    {
-    "service_type": "hospital",
-    "location_mentioned": "Mumbai",
-    "urgency": "High"
-    }
+   - If the user clearly requires **multiple related services** (e.g., "I have a headache" → "doctor", "hospital", "medical", "clinic"), return an **array** of the most relevant ones (maximum 3).
+   - If only **one specific service is needed**, return a **single-element array**.
+   - Be smart: infer needs even if not directly stated. For example:
+     - "I’m bleeding" → ["doctor", "hospital"]
+     - "I need to fix a broken pipe" → ["plumber"]
+     - "I have chest pain" → ["hospital", "ambulance", "doctor"]
+     - ⚠️ **If the user's request is not related to any of the service types in the list, return:** "service_type": []
+
+3. **"location_mentioned"**: Extract the city, locality, street, or landmark if mentioned in the query. If not mentioned, set this to null.
+
+4. **"urgency"**:
+   - "High": Emergency, immediate help, health risks, distress, danger.
+   - "Medium": Needs attention soon but not urgent.
+   - "Low": Routine or non-critical.
+
+---
+
+Return the result as **only a valid JSON object** in this exact format:
+
+{
+  "service_type": ["<one or more services from list>"],
+  "location_mentioned": "<location or null>",
+  "urgency": "<High | Medium | Low>"
+}
+
+---
+
+⚠️ VERY IMPORTANT: DO NOT add any extra explanation, comments, or text. Return only the JSON.
+
+---
+
+### Examples:
+
+**Example 1 (multiple services):**
+User query: “I have a severe headache and dizziness”
+→
+{
+  "service_type": ["doctor", "hospital", "medical"],
+  "location_mentioned": null,
+  "urgency": "High"
+}
+
+**Example 2 (single service):**
+User query: “There’s a leakage in my kitchen sink in Andheri.”
+→
+{
+  "service_type": ["plumber"],
+  "location_mentioned": "Andheri",
+  "urgency": "Medium"
+}
+
             `;
 
             const response = await fetch(
@@ -298,18 +343,27 @@
         // Render results
         function displayResults(data) {
             if (!data.nearby_services || data.nearby_services.length === 0) {
+                const serviceTypes = Array.isArray(data.understood_services) 
+                    ? data.understood_services.join(', ') 
+                    : data.understood_services || data.understood_service;
+                
                 resultContainer.innerHTML = `
                     <div class="status info">
-                        <p>No services found matching "${data.understood_service}" near ${data.target_location}.</p>
+                        <p>No services found matching "${serviceTypes}" near ${data.target_location}.</p>
                         <p>${data.message || 'Try a different service type or location.'}</p>
                     </div>
                 `;
                 return;
             }
 
+            // Display services by type when multiple types are involved
+            const serviceTypes = Array.isArray(data.understood_services) 
+                ? data.understood_services 
+                : [data.understood_services || data.understood_service];
+            
             let resultsHtml = `
                 <div class="status info">
-                    Found ${data.nearby_services.length} "${data.understood_service}" services near ${data.target_location}
+                    Found ${data.nearby_services.length} services of type(s) "${serviceTypes.join(', ')}" near ${data.target_location}
                     within ${data.radius_km}km radius.
                 </div>
                 <ul class="service-list">
